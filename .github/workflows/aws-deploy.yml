@@ -49,8 +49,7 @@ jobs:
           fi
       
           echo "Current latest image tag: $latest_image"
-          echo "PREVIOUS_LATEST_IMAGE=$latest_image" >> $GITHUB_ENV
-
+          echo "$latest_image" > previous_latest_image.txt
 
       - name: Build Docker image
         run: docker build -t mindme-prod .
@@ -107,6 +106,24 @@ jobs:
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
+          
+      - name: Save previous latest image tag
+        uses: actions/upload-artifact@v3
+        with:
+          name: previous-latest-image
+          path: previous_latest_image.txt
+
+      - name: Download previous latest image tag
+        uses: actions/download-artifact@v3
+        with:
+          name: previous-latest-image
+      
+      - name: Read the previous latest image tag
+        run: |
+          PREVIOUS_LATEST_IMAGE=$(cat previous_latest_image.txt)
+          echo "PREVIOUS_LATEST_IMAGE=$PREVIOUS_LATEST_IMAGE" >> $GITHUB_ENV
+          echo "Restoring previous latest image: $PREVIOUS_LATEST_IMAGE"
+
 
       # 🔹 Step 1: Remove Failed Image
       - name: Remove failed images
@@ -114,7 +131,7 @@ jobs:
           aws ecr batch-delete-image --repository-name test --image-ids imageTag=${{ github.run_number }} || true
           echo "Deleted failed image: ${{ github.run_number }}"
           aws ecr batch-delete-image --repository-name test --image-ids imageTag=latest || true
-          echo "Deleted failed image: ltatest"
+          echo "Deleted failed image: latest"
 
       # 🔹 Step 2: Revert `latest` to the Previous Working Image
       - name: Revert to previous latest image
