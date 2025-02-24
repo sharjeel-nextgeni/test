@@ -113,4 +113,3 @@ jobs:
           aws ecr put-image --repository-name ${{ env.ECS_CLUSTER }} --image-tag latest --image-manifest "$(aws ecr batch-get-image --repository-name ${{ env.ECS_CLUSTER }} --image-ids imageTag=${{ env.previous_latest_image }} --query 'images[0].imageManifest' --output text)"
   
           echo "Reverted latest tag to: ${{ env.previous_latest_image }}"
-  
