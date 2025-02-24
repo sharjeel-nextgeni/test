@@ -107,39 +107,33 @@ jobs:
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
-          
-      - name: Save previous latest image tag
-        run: |
-          if [ -f "previous_latest_image.txt" ]; then
-            echo "File exists. Uploading..."
-          else
-            echo "Error: previous_latest_image.txt not found!"
-            exit 1
-          fi
-      
-      - name: Upload previous latest image tag
-        uses: actions/upload-artifact@v4
-        with:
-          name: previous-latest-image
-          path: previous_latest_image.txt
 
-
+      # 🔹 Download the previous latest image tag before rollback
       - name: Download previous latest image tag
         uses: actions/download-artifact@v4
         with:
           name: previous-latest-image
           path: .
-      
-      - name: Read the previous latest image tag
+
+      # 🔹 Verify the downloaded file
+      - name: Verify Downloaded File
         run: |
-          ls -l previous_latest_image.txt  # Check if file is downloaded
-          cat previous_latest_image.txt  # Display contents
+          if [ -f "previous_latest_image.txt" ]; then
+            echo "File successfully downloaded."
+            cat previous_latest_image.txt
+          else
+            echo "Error: previous_latest_image.txt not found!"
+            exit 1
+          fi
+
+      # 🔹 Read and Set Previous Latest Image in Environment
+      - name: Read previous latest image tag
+        run: |
           PREVIOUS_LATEST_IMAGE=$(cat previous_latest_image.txt)
           echo "PREVIOUS_LATEST_IMAGE=$PREVIOUS_LATEST_IMAGE" >> $GITHUB_ENV
-          echo "Restoring previous latest image: $PREVIOUS_LATEST_IMAGE"
+          echo "Loaded PREVIOUS_LATEST_IMAGE: $PREVIOUS_LATEST_IMAGE"
 
-
-      # 🔹 Step 1: Remove Failed Image
+      # 🔹 Remove Failed Image
       - name: Remove failed images
         run: |
           aws ecr batch-delete-image --repository-name test --image-ids imageTag=${{ github.run_number }} || true
@@ -147,7 +141,7 @@ jobs:
           aws ecr batch-delete-image --repository-name test --image-ids imageTag=latest || true
           echo "Deleted failed image: latest"
 
-      # 🔹 Step 2: Revert `latest` to the Previous Working Image
+      # 🔹 Revert `latest` to the Previous Working Image
       - name: Revert to previous latest image
         run: |
           if [ -n "$PREVIOUS_LATEST_IMAGE" ] && [ "$PREVIOUS_LATEST_IMAGE" != "none" ]; then
