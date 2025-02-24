@@ -77,7 +77,12 @@ jobs:
       - name: Wait for ECS Task to Complete
         run: |
           echo "ECS Task completed successfully."
-		  exit 0
+          if [ "0" != "0" ]; then
+            echo "The DB migration task failed. Exiting."
+            exit 1
+          else
+            echo "The DB migration succeeded"
+          fi
 
   rollback_assets:
     name: Rollback Assets on Failure
