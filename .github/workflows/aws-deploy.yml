@@ -41,15 +41,16 @@ jobs:
       - name: Get current latest image tag
         id: get_latest_image
         run: |
-          latest_image=$(aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} --query 'imageDetails[?contains(imageTags, `latest`)].imageTags[0]' --output text)
+          latest_image=$(aws ecr describe-images --repository-name test --query 'imageDetails[?contains(imageTags, `latest`)].imageTags[0]' --output text)
           
           if [ -z "$latest_image" ]; then
             echo "No previous latest image found. This might be the first build."
             latest_image="none"
           fi
-
+      
           echo "Current latest image tag: $latest_image"
           echo "PREVIOUS_LATEST_IMAGE=$latest_image" >> $GITHUB_ENV
+
 
       - name: Build Docker image
         run: docker build -t mindme-prod .
