@@ -70,7 +70,7 @@ jobs:
       - name: Wait for ECS Task to Complete
         run: |
           echo "ECS Task completed successfully."
-          if [ "0" != "0" ]; then
+          if [ "1" != "0" ]; then
             echo "The DB migration task failed. Exiting."
             exit 1
           else
@@ -91,16 +91,6 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
   
-      # Step 1: Restore assets from the backup bucket
-      - name: Restore assets from backup bucket
-        run: |
-          aws s3 sync s3://mindme-prod-assets-backup-for-pipeline/assets s3://${{ env.S3_BUCKET_NAME }}/assets --delete
-  
-      # Step 2: Invalidate CloudFront cache to reflect the restored assets
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/assets/*"
-
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
@@ -123,10 +113,4 @@ jobs:
           aws ecr put-image --repository-name ${{ env.ECS_CLUSTER }} --image-tag latest --image-manifest "$(aws ecr batch-get-image --repository-name ${{ env.ECS_CLUSTER }} --image-ids imageTag=${{ env.previous_latest_image }} --query 'images[0].imageManifest' --output text)"
   
           echo "Reverted latest tag to: ${{ env.previous_latest_image }}"
-  
-      # Step 3: Update ECS service to use the previous `latest` image
-      - name: Update ECS service to use previous image
-        run: |
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.WEB_SERVICE }} --force-new-deployment
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.WORKER_SERVICE }} --force-new-deployment
   
