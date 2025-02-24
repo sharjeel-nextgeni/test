@@ -38,13 +38,6 @@ jobs:
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
 
-      # Step 1: Get the current `latest` image tag
-      - name: Get current latest image tag
-        id: get_latest_image
-        run: |
-          latest_image=$(aws ecr describe-images --repository-name ${{ env.ECS_CLUSTER }} --image-ids imageTag=latest --query 'imageDetails[0].imageTags' --output text)
-          echo "Current latest image tag: $latest_image"
-          echo "previous_latest_image=$latest_image" >> $GITHUB_ENV
 
       - name: Build Docker image
         run: docker build -t mindme-prod .
