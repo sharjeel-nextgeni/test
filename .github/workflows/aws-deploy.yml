@@ -108,13 +108,13 @@ jobs:
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
           
       - name: Save previous latest image tag
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: previous-latest-image
           path: previous_latest_image.txt
 
       - name: Download previous latest image tag
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: previous-latest-image
       
