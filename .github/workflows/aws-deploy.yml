@@ -38,6 +38,18 @@ jobs:
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
 
+      - name: Get current latest image tag
+        id: get_latest_image
+        run: |
+          latest_image=$(aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} --query 'imageDetails[?contains(imageTags, `latest`)].imageTags[0]' --output text)
+          
+          if [ -z "$latest_image" ]; then
+            echo "No previous latest image found. This might be the first build."
+            latest_image="none"
+          fi
+
+          echo "Current latest image tag: $latest_image"
+          echo "PREVIOUS_LATEST_IMAGE=$latest_image" >> $GITHUB_ENV
 
       - name: Build Docker image
         run: docker build -t mindme-prod .
@@ -107,21 +119,26 @@ jobs:
           echo "Previous image found: $previous_image"
           echo "PREVIOUS_LATEST_IMAGE=$previous_image" >> $GITHUB_ENV
 
-      # Step 1: Delete the failed images
+      # 🔹 Step 1: Remove Failed Image
       - name: Remove failed images
         run: |
-          aws ecr batch-delete-image --repository-name ${{ env.ECS_CLUSTER }} --image-ids imageTag=${{ github.run_number }} || true
-          aws ecr batch-delete-image --repository-name ${{ env.ECS_CLUSTER }} --image-ids imageTag=latest || true
-          echo "Deleted failed images: ${{ github.run_number }} and latest"
+          aws ecr batch-delete-image --repository-name ${{ env.ECR_REPOSITORY }} --image-ids imageTag=${{ github.run_number }} || true
+          echo "Deleted failed image: ${{ github.run_number }}"
 
-      # Step 2: Revert the `latest` tag to the previous stable image
+      # 🔹 Step 2: Revert `latest` to the Previous Working Image
       - name: Revert to previous latest image
         run: |
-          previous_manifest=$(aws ecr batch-get-image --repository-name ${{ env.ECS_CLUSTER }} --image-ids imageTag=${{ env.PREVIOUS_LATEST_IMAGE }} --query 'images[0].imageManifest' --output text)
-          if [ -z "$previous_manifest" ]; then
-            echo "No valid image manifest found for previous latest image. Rollback failed."
+          if [ "${{ env.PREVIOUS_LATEST_IMAGE }}" == "none" ]; then
+            echo "No previous successful image found. Rollback aborted."
             exit 1
           fi
 
-          aws ecr put-image --repository-name ${{ env.ECS_CLUSTER }} --image-tag latest --image-manifest "$previous_manifest"
+          previous_manifest=$(aws ecr batch-get-image --repository-name ${{ env.ECR_REPOSITORY }} --image-ids imageTag=${{ env.PREVIOUS_LATEST_IMAGE }} --query 'images[0].imageManifest' --output text)
+
+          if [ -z "$previous_manifest" ]; then
+            echo "No valid image manifest found for the previous successful image. Rollback failed."
+            exit 1
+          fi
+
+          aws ecr put-image --repository-name ${{ env.ECR_REPOSITORY }} --image-tag latest --image-manifest "$previous_manifest"
           echo "Reverted latest tag to: ${{ env.PREVIOUS_LATEST_IMAGE }}"
