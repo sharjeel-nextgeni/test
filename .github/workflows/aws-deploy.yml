@@ -1,13 +1,16 @@
-name: Test Manual Trigger
+name: Test Manual Yes No Trigger
 
 on:
   workflow_dispatch:
     inputs:
       name:
         description: 'Person to greet'
-        default: 'World'
         required: true
-        type: string
+        default: 'yes'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
 
 jobs:
   greet:
