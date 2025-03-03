@@ -1,162 +1,19 @@
-name: Build, Deploy to ECS & Upload Assets
+name: Test Manual Trigger
 
 on:
-  push:
-    branches:
-      - main
-
-env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_AWS_ACCESS_KEY }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_AWS_SECRET_KEY }}
-  AWS_REGION: "me-central-1"
-  ECR_REPOSITORY: "767397912351.dkr.ecr.me-central-1.amazonaws.com/test"
-  ECS_CLUSTER: "mindme-prod"
-  WEB_SERVICE: "mindme-prod-web-service"
-  WORKER_SERVICE: "mindme-prod-worker-service"
-  S3_BUCKET_NAME: "mindme-prod-assets"
-  CLOUDFRONT_DISTRIBUTION_ID: "E1C2J951SOF8CV"
-  ECS_ASSET_TASK: "mindme-prod-web-task"
-  MINDME_WEB_CONTAINER: "mindme-web"
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Person to greet'
+        default: 'World'
+        required: true
+        type: string
 
 jobs:
-  # 🔵 Job 1: Build & Push Docker Image
-  build:
-    name: Build and Push Docker Image
+  greet:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
+      - name: Send greeting
         run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
-
-      - name: Get current latest image tag
-        id: get_latest_image
-        run: |
-          latest_image=$(aws ecr describe-images --repository-name test --query 'imageDetails[?contains(imageTags, `latest`)].imageTags[0]' --output text)
-          
-          if [ -z "$latest_image" ]; then
-            echo "No previous latest image found. This might be the first build."
-            latest_image="none"
-          fi
-      
-          echo "Current latest image tag: $latest_image"
-          echo "$latest_image" > previous_latest_image.txt
-          cat previous_latest_image.txt
-
-      # 🔹 Upload the previous latest image tag as an artifact
-      - name: Upload previous latest image tag
-        uses: actions/upload-artifact@v4
-        with:
-          name: previous-latest-image
-          path: previous_latest_image.txt
-
-      - name: Build Docker image
-        run: docker build -t mindme-prod .
-
-      - name: Tag Docker image
-        run: |
-          docker tag mindme-prod:latest ${{ env.ECR_REPOSITORY }}:${{ github.run_number }}
-          docker tag mindme-prod:latest ${{ env.ECR_REPOSITORY }}:latest
-
-      - name: Push Docker image to ECR
-        run: |
-          docker push ${{ env.ECR_REPOSITORY }}:${{ github.run_number }}
-          docker push ${{ env.ECR_REPOSITORY }}:latest
-
-  deploy_assets:
-    name: Deploy Static Assets via ECS Task
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Wait for ECS Task to Complete
-        run: |
-          echo "ECS Task completed successfully."
-          if [ "1" != "0" ]; then
-            echo "The DB migration task failed. Exiting."
-            exit 1
-          else
-            echo "The DB migration succeeded"
-          fi
-
-  rollback_assets:
-    name: Rollback Assets on Failure
-    runs-on: ubuntu-latest
-    # Run this job only if any of the subsequent jobs fail
-    if: failure()
-    needs: [deploy_assets]
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-  
-      - name: Login to Amazon ECR
-        run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
-
-      # 🔹 Download the previous latest image tag before rollback
-      - name: Download previous latest image tag
-        uses: actions/download-artifact@v4
-        with:
-          name: previous-latest-image
-          path: .
-
-      # 🔹 Verify the downloaded file
-      - name: Verify Downloaded File
-        run: |
-          if [ -f "previous_latest_image.txt" ]; then
-            echo "File successfully downloaded."
-            cat previous_latest_image.txt
-          else
-            echo "Error: previous_latest_image.txt not found!"
-            exit 1
-          fi
-
-      # 🔹 Read and Set Previous Latest Image in Environment
-      - name: Read previous latest image tag
-        run: |
-          PREVIOUS_LATEST_IMAGE=$(cat previous_latest_image.txt)
-          echo "PREVIOUS_LATEST_IMAGE=$PREVIOUS_LATEST_IMAGE" >> $GITHUB_ENV
-          echo "Loaded PREVIOUS_LATEST_IMAGE: $PREVIOUS_LATEST_IMAGE"
-
-      # 🔹 Remove Failed Image
-      - name: Remove failed images
-        run: |
-          aws ecr batch-delete-image --repository-name test --image-ids imageTag=${{ github.run_number }} || true
-          echo "Deleted failed image: ${{ github.run_number }}"
-          aws ecr batch-delete-image --repository-name test --image-ids imageTag=latest || true
-          echo "Deleted failed image: latest"
-
-      # 🔹 Revert `latest` to the Previous Working Image
-      - name: Revert to previous latest image
-        run: |
-          if [ -n "$PREVIOUS_LATEST_IMAGE" ] && [ "$PREVIOUS_LATEST_IMAGE" != "none" ]; then
-            echo "Reverting 'latest' tag to previous image: $PREVIOUS_LATEST_IMAGE"
-      
-            # Get the image manifest of the previous latest image
-            image_manifest=$(aws ecr batch-get-image --repository-name test \
-              --image-ids imageTag=$PREVIOUS_LATEST_IMAGE --query 'images[0].imageManifest' --output text)
-            
-            if [ -z "$image_manifest" ]; then
-              echo "Error: Could not retrieve image manifest for tag $PREVIOUS_LATEST_IMAGE"
-              exit 1
-            fi
-      
-            # Put the old image tag back as 'latest'
-            aws ecr put-image --repository-name test --image-tag latest --image-manifest "$image_manifest"
-      
-            echo "Successfully reverted 'latest' tag to: $PREVIOUS_LATEST_IMAGE"
-          else
-            echo "No valid previous image found, skipping rollback."
-          fi
+          echo "GitHub Event: ${{ toJson(github.event) }}"
+          echo "Hello ${{ github.event.inputs.name }}"
